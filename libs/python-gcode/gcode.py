@@ -33,7 +33,7 @@ class Line(object):
 						if re.match('[A-Za-z]', arg[0]):
 							if arg[1:] is not None and arg[1:] != '':
 								try:
-									self.args[arg[0]] = float(arg[1:]) if '.' in arg[1:] else int(arg[1:])
+									self.args[arg[0]] = float(arg[1:]) if '.' in arg[1:] else int(arg[1:]) #only convert to float if decimal point present
 								except ValueError:
 									sys.stderr.write("Line: %s\n" % line)
 									sys.stderr.write("Code: %s\n" % self.code)
@@ -165,7 +165,7 @@ class Gcode(object):
 		write the gcode to the file instead of returning it."""
 		s = (self.preamble.construct() + '\n') if self.preamble else ''
 		for i,layer in enumerate(self.layers):
-			s += ';LAYER:%d\n' % i
+			#s += ';LAYER:%d\n' % i
 			s += layer.construct()
 			s += '\n'
 		if outfile:
@@ -213,7 +213,7 @@ class Gcode(object):
 			for l in filestring.split('\n'):
 
 				#Looks like a layer change because we have a Z
-				if re.match(r'G[01]\s.*Z-?\.?\d+', l):
+				if re.match(r'G[01]\s.*Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
 					if in_preamble:
 						self.preamble = Layer(curr_layer, layernum=0)
 						in_preamble = False
