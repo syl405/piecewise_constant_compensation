@@ -75,6 +75,7 @@ class LayerwiseCompensator:
 		self.blocks = []
 		for i in range(0,member_lengths[0]):
 			 self.blocks.append(Block(lookup_table[0][i],lookup_table[1][i],lookup_table[2][i]))
+		self.blocks.append(Block(lookup_table[1][-1],float('inf'),lookup_table[2][-1])) #extrapolate past error model to keep same per layer offset from last block
 		self.blocks = tuple(self.blocks) #convert to tuple to protect against accidental editing downstream
 
 	def get_total_offset(self, build_height):
