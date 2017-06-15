@@ -42,11 +42,12 @@ def compensate_z_uniform(lookup_table_path, gcode_path):
 	for i in range(0,len(g.layers)):
 		cur_build_height = g.layers[i].z() #get build height for this layer
 		offset_reqd = piecewise_compensator.get_total_offset(cur_build_height)
-		outstanding_offset_to_apply += offset_reqd
-		if outstanding_offset_to_apply >= Z_CONTROL_RESOLUTION:
-			(num_steps_to_apply,residual_offset) = divmod(outstanding_offset_to_apply,Z_CONTROL_RESOLUTION)
-			g.shift(i,Z=num_steps_to_apply*Z_CONTROL_RESOLUTION) #apply offset in full Z steps only
-			outstanding_offset_to_apply = residual_offset #keep track of remaining offset to apply
+		g.shift(i,Z=offset_reqd) #blindly apply offset regardless of stepper position
+		#outstanding_offset_to_apply += offset_reqd
+		# if outstanding_offset_to_apply >= Z_CONTROL_RESOLUTION:
+		# 	(num_steps_to_apply,residual_offset) = divmod(outstanding_offset_to_apply,Z_CONTROL_RESOLUTION)
+		# 	g.shift(i,Z=num_steps_to_apply*Z_CONTROL_RESOLUTION) #apply offset in full Z steps only
+		# 	outstanding_offset_to_apply = residual_offset #keep track of remaining offset to apply
 
 	# Output Z-compensated G-code
 	g.construct(gcode_path[0:-6] + '_compensated.gcode')
