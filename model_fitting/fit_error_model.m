@@ -1,7 +1,7 @@
 clear
 
 %% Define global parameters
-COMPENSATION_LOOKUP_TABLE_PATH = './piecewise_compensation_lookup.csv';
+PIECEWISE_CONSTANT_COMPENSATION_LOOKUP_TABLE_PATH = './piecewise_compensation_lookup.csv';
 
 %% Parse in raw data
 raw_filename = '../error_data/printer_accuracy_arjun.xlsx';
@@ -17,7 +17,7 @@ D = table(changem(R.Nominal_Length,[30-20.1 60-20.1 99.9-20.1 180-20.1 240-20.1]
 D.Measured_Length = R.Measured_Length;
 D.Absolute_Error = D.Measured_Length - D.Nominal_Length;
 
-%% Calculate Summary Statistics
+%% Calculate Piecewise-Constant Error Model
 % S = table(unique(D.Nominal_Length+20.1),'VariableNames',{'Nominal_Length'},'RowNames',cellstr(num2str(unique(D.Nominal_Length))));
 % nom_length_group = findgroups(D.Nominal_Length);
 % S.Mean_Measured_Height = splitapply(@mean,D.Measured_Height,nom_length_group);
@@ -49,5 +49,8 @@ for i = 2:size(O,1)
     O(i,1) = O(i-1,2);
 end
 
-csvwrite(COMPENSATION_LOOKUP_TABLE_PATH,O) %write model to file
+csvwrite(PIECEWISE_CONSTANT_COMPENSATION_LOOKUP_TABLE_PATH,O) %write model to file
 
+%% Calculate Cubic Error Model
+D.Target_Height = D.Nominal_Length + 20.1;
+lm_cubic = fitlm(D.Target_Height, D.Absolute_Error, 'height_error ~ target_height + target_height^2 + target_height^3', 'VarNames', {'target_height' 'height_error'});
