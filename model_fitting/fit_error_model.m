@@ -2,6 +2,7 @@ clear
 
 %% Define global parameters
 PIECEWISE_CONSTANT_COMPENSATION_LOOKUP_TABLE_PATH = './piecewise_compensation_lookup.csv';
+CUBIC_COMPENSATION_COEFFICIENT_FILE_PATH = './cubic_compensation_coefs.csv';
 
 %% Parse in raw data
 raw_filename = '../error_data/printer_accuracy_arjun.xlsx';
@@ -53,4 +54,6 @@ csvwrite(PIECEWISE_CONSTANT_COMPENSATION_LOOKUP_TABLE_PATH,O) %write model to fi
 
 %% Calculate Cubic Error Model
 D.Target_Height = D.Nominal_Length + 20.1;
-lm_cubic = fitlm(D.Target_Height, D.Absolute_Error, 'height_error ~ target_height + target_height^2 + target_height^3', 'VarNames', {'target_height' 'height_error'});
+D.Measured_Height = D.Measured_Length + 20.1;
+lm_cubic = fitlm(D.Target_Height, D.Measured_Height, 'measured_height ~ target_height + target_height^2 + target_height^3', 'VarNames', {'target_height' 'measured_height'},'Intercept',true);
+O_cubic= lm_cubic.Coefficients.Estimate;
