@@ -213,7 +213,7 @@ class Gcode(object):
 			for l in filestring.split('\n'):
 
 				#Looks like a layer change because we have a Z
-				if re.match(r'G[01]\s.*Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
+				if re.match(r'G[01]\s+Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
 					if in_preamble:
 						self.preamble = Layer(curr_layer, layernum=0)
 						in_preamble = False
