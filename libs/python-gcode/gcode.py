@@ -127,6 +127,20 @@ class Layer(object):
 				if arg in line.args:
 					line.args[arg] += kwargs[arg]
 
+	def z_compensate(self, compensator):
+		"""Shifts every XY move line in this layer by the amount specified by
+		compensator(). compensator is a Compensator3D instance representing
+		the error model being used for compensation."""
+		for line in self.lines:
+			if line.code == 'G1': #apply compensation only to G1 lines (Slic3r generated lines)
+				if 'X' in line.args and 'Y' in line.args: #check if it is an XY move line
+					X = line.args['X']
+					Y = line.args['Y']
+					line.args['Z'] = self.z() - compensator.get_predicted_error(X,Y,self.z()) #apply z compensation
+				elif 'X' in line.args or 'Y' in line.args: #uniaxial traverses (theses are non-print moves)
+					line.args['Z'] = self.z() #force to original layer height
+			elif line.code == 'G0': #default G0 lines to original layer height
+				line.args['Z'] = self.z()
 
 	def multiply(self, **kwargs):
 		"""Same as shift but with multiplication instead."""
@@ -174,7 +188,6 @@ class Gcode(object):
 		else:
 			return s
 
-
 	def shift(self, layernum=0, **kwargs):
 		"""Shift given layer and all following. Provide arguments and
 		amount as kwargs. Example: shift(17, X=-5) shifts layer 17 and all
@@ -182,13 +195,17 @@ class Gcode(object):
 		for layer in self.layers[layernum:]:
 			layer.shift(**kwargs)
 
+	def z_compensate(self, compensator):
+		"""Apply 3D z compensation to all layers in this gcode object,
+		according to amount specified by compensator.get_predicted_error()."""
+		for layer in self.layers:
+			layer.z_compensate(compensator)
 
 	def multiply(self, layernum=0, **kwargs):
 		"""The same as shift() but multiply the given argument by a
 		factor."""
 		for layer in self.layers[layernum:]:
 			layer.multiply(**kwargs)
-
 
 	def parse(self, filestring):
 		"""Parse the gcode."""
