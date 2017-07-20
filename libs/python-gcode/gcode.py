@@ -2,9 +2,13 @@ import re, sys, warnings
 
 class Point(object):
 	def __init__(self, X, Y, Z):
-		self.X = X
-		self.Y = Y
-		self.Z = Z
+		self.X = float(X)
+		self.Y = float(Y)
+		self.Z = float(Z)
+
+	def __repr__(self):
+		return '(%f,%f,%f)' % (self.X, self.Y, self.Z)
+
 
 	def get_coordinates(self):
 		"""returns XYZ coordinates of this point as a 3-member list"""
@@ -19,18 +23,6 @@ class Line(object):
 		self.args    = args
 		self.comment = comment
 		self.initial_point = initial_point
-
-		# determine destination specified by current line
-		[X,Y,Z] = self.initial_point.get_coordinates() #default to no movemente
-		# update with destination specified in current line if applicable
-		if 'X' in self.args:
-			X = self.args['X']
-		if 'Y' in self.args:
-			Y = self.args['Y']
-		if 'Z' in self.args:
-			Z = self.args['Z']
-		self.final_point = Point(X,Y,Z)
-
 
 		if args or code:
 			if not (args and code):
@@ -67,14 +59,40 @@ class Line(object):
 						else:
 							self.args[None] = arg
 
+		# determine destination specified by current line
+		[X,Y,Z] = self.initial_point.get_coordinates() #default to no movemente
+		# update with destination specified in current line if applicable
+		if self.code in {'G0','G1'}:
+			if 'X' in self.args:
+				X = self.args['X']
+			else: # do not allow implicit non-moving axis, force explicit spec on XYZ for all move commands
+				self.args['X'] = X
+			if 'Y' in self.args:
+				Y = self.args['Y']
+			else:
+				self.args['Y'] = Y
+			if 'Z' in self.args:
+				Z = self.args['Z']
+			else:
+				self.args['Z'] = Z
+			self.final_point = Point(X,Y,Z)
+		else:
+			self.final_point = Point(0,0,0)
+
+		self.length = self.get_length()
 
 	def __repr__(self):
 		return self.construct()
 		return '%s: %s' % (self.code, repr(self.args))
 
-	def get_length(self, prev_line):
+	def get_length(self):
 		"""returns length of current line in 3-space (XYZ)"""
-		return (self.args['X']**2  + self.args['Y']**2 + self.args['Z']**2)**0.5 # pythagorus' theorem
+		return ((self.final_point.get_coordinates()[0]-self.initial_point.get_coordinates()[0])**2  +\
+				(self.final_point.get_coordinates()[1]-self.initial_point.get_coordinates()[1])**2 + \
+				(self.final_point.get_coordinates()[2]-self.initial_point.get_coordinates()[2])**2)**0.5 # pythagorus' theorem
+
+	def get_code(self):
+		return self.code
 
 	def get_initial_point(self):
 		return self.initial_point
@@ -82,22 +100,51 @@ class Line(object):
 	def get_final_point(self):
 		return self.final_point
 
-	def split_line(self,segment_length):
-		"""if current line is longer than segment_length (provided in mm), split into segments of specified length (put single short line from remainder at end)
+	def split_move(self,segment_length):
+		"""if current move is longer than segment_length (provided in mm), split into segments of specified length (put single short line from remainder at end)
 		and return list of lines. else return single-element list containing self."""
 
-		if self.get_length() <= segment_length:
+		if self.length <= segment_length:
 			return [self]
 		else:
-			list_of_constituent_lines = []
-			whole_move_length = self.get_length()
 			#calculate number of segments into which to split current line; use floor division to put short segment at the end
-			n_segments = whole_move_length//segment_length
+			n_segments = int(self.length//segment_length)
 
 			#calculate direction cosines
-			X_hat = self.args['X']/float(whole_move_length);
-			Y_hat = self.args['Y']/float(whole_move_length);
-			Z_hat = self.args['Z']/float(whole_move_length);
+			if 'X' in self.args:
+				X_hat = self.args['X']/float(self.length)
+			else:
+				X_hat = float(0)
+			if 'Y' in self.args:
+				Y_hat = self.args['Y']/float(self.length)
+			else:
+				Y_hat = float(0)
+			if 'Z' in self.args:
+				Z_hat = self.args['Z']/float(self.length)
+			else:
+				Z_hat = float(0)
+
+
+			#instantiate first line (this is redundant move with zero length; just stays at initial position of original unsplit line)
+			list_of_constituent_lines = [Line('',\
+										 self.get_initial_point(),\
+										 self.code,\
+										 {'X':self.get_initial_point().get_coordinates()[0],'Y':self.get_initial_point().get_coordinates()[1],'Z':self.get_initial_point().get_coordinates()[2]},\
+										 ';first move in split move')]
+			for i in range(1,n_segments+1): #start at i=1 to avoid redundant line instructing machine to stay at initial point
+				cur_X = self.args['X'] + i*X_hat
+				cur_Y = self.args['Y'] + i*Y_hat
+				cur_Z = self.args['Z'] + i*Z_hat
+
+				#make next segment
+				incremental_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, {'X':cur_X,'Y':cur_Y,'Z':cur_Z}, ';split segment')
+				#append next segment to list of split moves
+				list_of_constituent_lines.append(incremental_line)
+
+			#instantiate last time (this segment may be shorter than the specified segment length and is required to bring machine to destination specced in unsplit move)
+			last_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, {'X':self.args['X'],'Y':self.args['Y'],'Z':self.args['Z']}, ';last move in split move')
+
+			return list_of_constituent_lines
 
 	def construct(self):
 		"""Construct and return a line of gcode based on self.code and
@@ -110,36 +157,46 @@ class Line(object):
 		(' ;%s' % self.comment if self.comment else '')
 
 
-
 class Layer(object):
 	def __init__(self, lines=[], prev_layer_final_pt=Point(0,0,0), layernum=None):
 		"""Parse a layer of gcode line-by-line, making Line objects."""
 		self.layernum  = layernum
 		self.preamble  = []
 		self.postamble = []
-		
+		self.lines = []
 
-		self.lines = [Line(lines[0],prev_layer_final_pt)] # initialize list of lines with fist line
+		first_line_in_layer = Line(lines[0],prev_layer_final_pt) #make Line object from unsplit first line
+		if first_line_in_layer.get_code() in ['G0','G1']: #only split move lines
+			split_first_line_in_layer = first_line_in_layer.split_move(1) #split first line into 1mm-long segments
+			self.lines += split_first_line_in_layer # initialize list of lines with split fist line
+		else:
+			self.lines += [first_line_in_layer]
+
 		for l in lines[1:]:
 			prev_line = self.lines[-1]
-			self.lines.append(Line(l,prev_line.get_final_point()))
+			cur_line = Line(l,prev_line.get_final_point())
+			if cur_line.get_code() in ['G0','G1']:
+				split_cur_line = cur_line.split_move(1)
+				#print len(split_cur_line)
+				self.lines += split_cur_line
+			else:
+				self.lines += [cur_line]
 
 		#calculate initial and final points in this layer
 		self.initial_point = self.lines[0].get_initial_point #intial pt in first line
 		self.final_point = self.lines[-1].get_final_point #final pt in last line
 
-
 	def __repr__(self):
 		return '<Layer %s at Z=%s; corners: (%d, %d), (%d, %d); %d lines>' % (
 				(self.layernum, self.z()) + self.extents() + (len(self.lines),))
 
-	def get_first_point_in_layer(self):
+	def get_initial_point(self):
 		"""returns first XYZ coordinate point in this layer"""
+		return self.initial_point
 
-
-	def get_last_point_in_layer(self):
+	def get_final_point(self):
 		"""returns last XYZ coordinate point in this layer"""
-
+		return self.final_point
 
 	def extents(self):
 		"""Return the extents of the layer: the min/max in x and y that
