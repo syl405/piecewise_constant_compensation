@@ -16,11 +16,10 @@ R.Measured_Length = R.Nominal_Length + R.Raw_Deviation;
 D = table(changem(R.Nominal_Length,[30-20.1 60-20.1 99.9-20.1 180-20.1 240-20.1],[10 40 80 160 220]),'VariableNames',{'Nominal_Length'});
 D.Measured_Length = R.Measured_Length;
 D.Absolute_Error = D.Measured_Length - D.Nominal_Length;
+D.Replicate = R.Replicate;
+D.Printer = repmat((1:5)',size(D,1)/5,1);
 
 %% Calculate Summary Statistics
-% S = table(unique(D.Nominal_Length+20.1),'VariableNames',{'Nominal_Length'},'RowNames',cellstr(num2str(unique(D.Nominal_Length))));
-% nom_length_group = findgroups(D.Nominal_Length);
-% S.Mean_Measured_Height = splitapply(@mean,D.Measured_Height,nom_length_group);
 S = table([20.1;30;60;99.9;180;240],'VariableNames',{'Target_Height'});
 S.Mean_Measured_Height(S.Target_Height==20.1)= 20.1;
 for i = 2:numel(S.Target_Height)
@@ -51,3 +50,25 @@ end
 
 csvwrite(COMPENSATION_LOOKUP_TABLE_PATH,O) %write model to file
 
+%% Fit printer-specific error model
+printers = unique(D.Printer);
+for i = 1:numel(printers)
+    C(i).data = D(D.Printer == printers(i),:);
+    C(i).error_lm = fitlm(C(i).data.Nominal_Length,C(i).data.Absolute_Error,'linear');
+end 
+
+% Check printer-specific error model for prediction intervals
+%generate probe
+probe = (0:5:240)';
+
+pred_int_width =  nan(numel(C),5); %cols: printer, mean, median, max, mean
+for i = 1:numel(C)
+    [C(i).point_pred, C(i).pred_int] = predict(C(i).error_lm,probe,'Prediction','observation','Simultaneous',true,'Alpha',0.5);
+    C(i).pred_width = range(C(i).pred_int,2);
+    pred_int_width(i,1) = i;
+    pred_int_width(i,2) = mean(C(i).pred_width);
+    pred_int_width(i,3) = median(C(i).pred_width);
+    
+    pred_int_width(i,4) = max(C(i).pred_width);
+    pred_int_width(i,5) = min(C(i).pred_width);
+end
