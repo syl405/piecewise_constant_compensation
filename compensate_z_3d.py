@@ -26,12 +26,12 @@ def compensate_z_3d(model_coefficients_path, gcode_path):
 		try:
 			reader = csv.reader(model_coefficients_fs)
 			for line in reader:
-				coefficients.append(line[0])
+				coefficients.append(float(line[0]))
 		except:
 			raise ValueError('Failed to parse in lookup table from CSV file.')
 
 	# Instantiate compensator using parsed in data
-	compensator_model = Compensator3D(coefficients[0],coefficients[1],coefficients[2],3.9)
+	compensator_model = Compensator3D(coefficients)
 
 	# Instantiate Gcode object
 	g = gcode.Gcode(gcode_path)
@@ -98,17 +98,35 @@ class Block:
 			return 0
 
 class Compensator3D:
-	def __init__(self, x_coeff, y_coeff, z_coeff, model_z_offset):
-		self.x_coeff = float(x_coeff)
-		self.y_coeff = float(y_coeff)
-		self.z_coeff = float(z_coeff)
-		self.model_z_offset = float(model_z_offset)
+	def __init__(self, coeffs):
+		"""coeffs is a list or tuple of coefficients for a cubic model in XYZ in standard order of terms."""
+		self.coeffs = coeffs
 
 	def get_predicted_error(self, x, y, z):
 		"""Returns a height error (delta_z) predicted by the model, given nominal
 		coordinates of x, y, and z."""
-		true_z = z - self.model_z_offset #error model is referenced off of a 3.9 mm-thick reference plane instead of the bottom of the part
-		if true_z < 0:
+		if z < 0:
 			return 0
 		else:
-			return self.x_coeff*x + self.y_coeff*y + self.z_coeff*true_z
+			return self.coeffs[0] +\
+				   self.coeffs[1]*x +\
+				   self.coeffs[2]*y +\
+				   self.coeffs[3]*z +\
+				   self.coeffs[4]*x**2 +\
+				   self.coeffs[5]*x*y +\
+				   self.coeffs[6]*y**2 +\
+				   self.coeffs[7]*x*z +\
+				   self.coeffs[8]*y*z +\
+				   self.coeffs[9]*z**2 +\
+				   self.coeffs[10]*x**3 +\
+				   self.coeffs[11]*(x**2)*y +\
+				   self.coeffs[12]*x*(y**2) +\
+				   self.coeffs[13]*y**3 +\
+				   self.coeffs[14]*(x**2)*z +\
+				   self.coeffs[15]*x*y*z +\
+				   self.coeffs[16]*(y**2)*z +\
+				   self.coeffs[17]*x*(z**2) +\
+				   self.coeffs[18]*y*(z**2) +\
+				   self.coeffs[19]*z**3
+
+

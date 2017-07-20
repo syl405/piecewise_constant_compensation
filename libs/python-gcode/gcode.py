@@ -1,13 +1,36 @@
 import re, sys, warnings
 
+class Point(object):
+	def __init__(self, X, Y, Z):
+		self.X = X
+		self.Y = Y
+		self.Z = Z
+
+	def get_coordinates(self):
+		"""returns XYZ coordinates of this point as a 3-member list"""
+		return [self.X, self.Y, self.Z]
+
 class Line(object):
-	def __init__(self, line='', code=None, args={}, comment=None):
+	def __init__(self, line='', initial_point=Point(0,0,0), code=None, args={}, comment=None):
 		"""Parse a single line of gcode into its code and named
 		arguments."""
 		self.line    = line
 		self.code    = code
 		self.args    = args
 		self.comment = comment
+		self.initial_point = initial_point
+
+		# determine destination specified by current line
+		[X,Y,Z] = self.initial_point.get_coordinates() #default to no movemente
+		# update with destination specified in current line if applicable
+		if 'X' in self.args:
+			X = self.args['X']
+		if 'Y' in self.args:
+			Y = self.args['Y']
+		if 'Z' in self.args:
+			Z = self.args['Z']
+		self.final_point = Point(X,Y,Z)
+
 
 		if args or code:
 			if not (args and code):
@@ -49,6 +72,32 @@ class Line(object):
 		return self.construct()
 		return '%s: %s' % (self.code, repr(self.args))
 
+	def get_length(self, prev_line):
+		"""returns length of current line in 3-space (XYZ)"""
+		return (self.args['X']**2  + self.args['Y']**2 + self.args['Z']**2)**0.5 # pythagorus' theorem
+
+	def get_initial_point(self):
+		return self.initial_point
+
+	def get_final_point(self):
+		return self.final_point
+
+	def split_line(self,segment_length):
+		"""if current line is longer than segment_length (provided in mm), split into segments of specified length (put single short line from remainder at end)
+		and return list of lines. else return single-element list containing self."""
+
+		if self.get_length() <= segment_length:
+			return [self]
+		else:
+			list_of_constituent_lines = []
+			whole_move_length = self.get_length()
+			#calculate number of segments into which to split current line; use floor division to put short segment at the end
+			n_segments = whole_move_length//segment_length
+
+			#calculate direction cosines
+			X_hat = self.args['X']/float(whole_move_length);
+			Y_hat = self.args['Y']/float(whole_move_length);
+			Z_hat = self.args['Z']/float(whole_move_length);
 
 	def construct(self):
 		"""Construct and return a line of gcode based on self.code and
@@ -63,17 +112,33 @@ class Line(object):
 
 
 class Layer(object):
-	def __init__(self, lines=[], layernum=None):
+	def __init__(self, lines=[], prev_layer_final_pt=Point(0,0,0), layernum=None):
 		"""Parse a layer of gcode line-by-line, making Line objects."""
 		self.layernum  = layernum
 		self.preamble  = []
-		self.lines     = [Line(l) for l in lines if l]
 		self.postamble = []
+		
+
+		self.lines = [Line(lines[0],prev_layer_final_pt)] # initialize list of lines with fist line
+		for l in lines[1:]:
+			prev_line = self.lines[-1]
+			self.lines.append(Line(l,prev_line.get_final_point()))
+
+		#calculate initial and final points in this layer
+		self.initial_point = self.lines[0].get_initial_point #intial pt in first line
+		self.final_point = self.lines[-1].get_final_point #final pt in last line
 
 
 	def __repr__(self):
 		return '<Layer %s at Z=%s; corners: (%d, %d), (%d, %d); %d lines>' % (
 				(self.layernum, self.z()) + self.extents() + (len(self.lines),))
+
+	def get_first_point_in_layer(self):
+		"""returns first XYZ coordinate point in this layer"""
+
+
+	def get_last_point_in_layer(self):
+		"""returns last XYZ coordinate point in this layer"""
 
 
 	def extents(self):
@@ -136,7 +201,7 @@ class Layer(object):
 				if 'X' in line.args and 'Y' in line.args: #check if it is an XY move line
 					X = line.args['X']
 					Y = line.args['Y']
-					line.args['Z'] = self.z() - compensator.get_predicted_error(X,Y,self.z()) #apply z compensation
+					line.args['Z'] = self.z() - compensator.get_predicted_error(X-4.195,Y-28.195,self.z()) #apply z compensation with appropriate xy offset
 				elif 'X' in line.args or 'Y' in line.args: #uniaxial traverses (theses are non-print moves)
 					line.args['Z'] = self.z() #force to original layer height
 			elif line.code == 'G0': #default G0 lines to original layer height
@@ -228,7 +293,8 @@ class Gcode(object):
 			layernum = 1
 			curr_layer = []
 			for l in filestring.split('\n'):
-
+				if not l: #skip empty lines
+					continue
 				#Looks like a layer change because we have a Z
 				if re.match(r'G[01]\s+Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
 					if in_preamble:
