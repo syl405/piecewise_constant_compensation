@@ -1,4 +1,4 @@
-import re, sys, warnings
+import re, sys, warnings, copy
 
 class Point(object):
 	def __init__(self, X, Y, Z):
@@ -15,7 +15,7 @@ class Point(object):
 		return [self.X, self.Y, self.Z]
 
 class Line(object):
-	def __init__(self, line='', initial_point=Point(0,0,0), code=None, args={}, comment=None):
+	def __init__(self, line, initial_point, code=None, args={}, comment=None):
 		"""Parse a single line of gcode into its code and named
 		arguments."""
 		self.line    = line
@@ -77,9 +77,13 @@ class Line(object):
 				self.args['Z'] = Z
 			self.final_point = Point(X,Y,Z)
 		else:
-			self.final_point = Point(0,0,0)
+			self.final_point = self.initial_point
 
 		self.length = self.get_length()
+
+		#sanity check: do not allow negative vector magnitudes
+		if self.length < 0:
+			raise ValueError('Negative vector magnitude detected.')
 
 	def __repr__(self):
 		return self.construct()
@@ -93,6 +97,9 @@ class Line(object):
 
 	def get_code(self):
 		return self.code
+
+	def get_args(self):
+		return self.args
 
 	def get_initial_point(self):
 		return self.initial_point
@@ -112,37 +119,65 @@ class Line(object):
 
 			#calculate direction cosines
 			if 'X' in self.args:
-				X_hat = self.args['X']/float(self.length)
+				X_hat = (self.args['X'] - self.initial_point.get_coordinates()[0])/float(self.length)
 			else:
 				X_hat = float(0)
 			if 'Y' in self.args:
-				Y_hat = self.args['Y']/float(self.length)
+				Y_hat = (self.args['Y'] - self.initial_point.get_coordinates()[1])/float(self.length)
 			else:
 				Y_hat = float(0)
 			if 'Z' in self.args:
-				Z_hat = self.args['Z']/float(self.length)
+				Z_hat = (self.args['Z'] - self.initial_point.get_coordinates()[2])/float(self.length)
 			else:
 				Z_hat = float(0)
 
+			#debug
+			if self.line == 'G0 X0 Y1000 F10800.0 ':
+				print 'direction: (%f,%f,%f)' % (X_hat,Y_hat,Z_hat)
+				print 'magnitude: %f' % self.length
+				print 'initial: (%f,%f,%f)' % (self.initial_point.get_coordinates()[0],self.initial_point.get_coordinates()[1],self.initial_point.get_coordinates()[2])
+				print 'final: (%f,%f,%f)' % (self.final_point.get_coordinates()[0],self.final_point.get_coordinates()[1],self.final_point.get_coordinates()[2])
+
+			#calculate extrusion length for each segment
+			E_full_length_segments = self.args['E'] * (float(segment_length)/self.length) #distribute extruded filament length by print length
+			E_last_segment = self.args['E'] * ((self.length - (float(segment_length)*n_segments))/self.length)
 
 			#instantiate first line (this is redundant move with zero length; just stays at initial position of original unsplit line)
+			first_line_args = copy.deepcopy(self.args)
+			first_line_args['E'] = 0
 			list_of_constituent_lines = [Line('',\
 										 self.get_initial_point(),\
 										 self.code,\
-										 {'X':self.get_initial_point().get_coordinates()[0],'Y':self.get_initial_point().get_coordinates()[1],'Z':self.get_initial_point().get_coordinates()[2]},\
+										 first_line_args,\
 										 ';first move in split move')]
+
 			for i in range(1,n_segments+1): #start at i=1 to avoid redundant line instructing machine to stay at initial point
-				cur_X = self.args['X'] + i*X_hat
-				cur_Y = self.args['Y'] + i*Y_hat
-				cur_Z = self.args['Z'] + i*Z_hat
+				cur_X = self.initial_point.get_coordinates()[0] + i*segment_length*X_hat
+				cur_Y = self.initial_point.get_coordinates()[1] + i*segment_length*Y_hat
+				cur_Z = self.initial_point.get_coordinates()[2] + i*segment_length*Z_hat
 
 				#make next segment
-				incremental_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, {'X':cur_X,'Y':cur_Y,'Z':cur_Z}, ';split segment')
+				cur_args = copy.deepcopy(self.args) #copy over arguments from unsplit line to preserve feedrate, extrusion etc.
+				#update XYZ destination with incremental values
+				cur_args['X'] = cur_X
+				cur_args['Y'] = cur_Y
+				cur_args['Z'] = cur_Z
+				cur_args['E'] = E_full_length_segments
+				incremental_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, cur_args, ';split segment')
+
+
 				#append next segment to list of split moves
 				list_of_constituent_lines.append(incremental_line)
 
 			#instantiate last time (this segment may be shorter than the specified segment length and is required to bring machine to destination specced in unsplit move)
-			last_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, {'X':self.args['X'],'Y':self.args['Y'],'Z':self.args['Z']}, ';last move in split move')
+			last_line_args = copy.deepcopy(self.args)
+			last_line_args['E'] = E_last_segment
+			last_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, last_line_args, ';last move in split move')
+			list_of_constituent_lines.append(last_line)
+
+			#sanity check
+			if list_of_constituent_lines[-1].get_final_point().get_coordinates() != self.final_point.get_coordinates():
+				raise ValueError('Split line not coming back to original destination.')
 
 			return list_of_constituent_lines
 
@@ -158,7 +193,7 @@ class Line(object):
 
 
 class Layer(object):
-	def __init__(self, lines=[], prev_layer_final_pt=Point(0,0,0), layernum=None):
+	def __init__(self, prev_layer_final_pt, lines=[], layernum=None):
 		"""Parse a layer of gcode line-by-line, making Line objects."""
 		self.layernum  = layernum
 		self.preamble  = []
@@ -167,7 +202,7 @@ class Layer(object):
 
 		first_line_in_layer = Line(lines[0],prev_layer_final_pt) #make Line object from unsplit first line
 		if first_line_in_layer.get_code() in ['G0','G1']: #only split move lines
-			split_first_line_in_layer = first_line_in_layer.split_move(1) #split first line into 1mm-long segments
+			split_first_line_in_layer = first_line_in_layer.split_move(10) #split first line into 1mm-long segments
 			self.lines += split_first_line_in_layer # initialize list of lines with split fist line
 		else:
 			self.lines += [first_line_in_layer]
@@ -175,16 +210,15 @@ class Layer(object):
 		for l in lines[1:]:
 			prev_line = self.lines[-1]
 			cur_line = Line(l,prev_line.get_final_point())
-			if cur_line.get_code() in ['G0','G1']:
-				split_cur_line = cur_line.split_move(1)
-				#print len(split_cur_line)
+			if cur_line.get_code() in ['G0','G1'] and 'E' in cur_line.get_args(): #do not split non-printing moves
+				split_cur_line = cur_line.split_move(10)
 				self.lines += split_cur_line
 			else:
 				self.lines += [cur_line]
 
 		#calculate initial and final points in this layer
-		self.initial_point = self.lines[0].get_initial_point #intial pt in first line
-		self.final_point = self.lines[-1].get_final_point #final pt in last line
+		self.initial_point = self.lines[0].get_initial_point() #intial pt in first line
+		self.final_point = self.lines[-1].get_final_point() #final pt in last line
 
 	def __repr__(self):
 		return '<Layer %s at Z=%s; corners: (%d, %d), (%d, %d); %d lines>' % (
@@ -301,7 +335,7 @@ class Gcode(object):
 		write the gcode to the file instead of returning it."""
 		s = (self.preamble.construct() + '\n') if self.preamble else ''
 		for i,layer in enumerate(self.layers):
-			#s += ';LAYER:%d\n' % i
+			s += ';LAYER:%d\n' % i
 			s += layer.construct()
 			s += '\n'
 		if outfile:
@@ -355,10 +389,13 @@ class Gcode(object):
 				#Looks like a layer change because we have a Z
 				if re.match(r'G[01]\s+Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
 					if in_preamble:
-						self.preamble = Layer(curr_layer, layernum=0)
+						self.preamble = Layer(Point(0,0,0), curr_layer, layernum=0)
 						in_preamble = False
 					else:
-						self.layers.append(Layer(curr_layer, layernum=layernum))
+						if len(self.layers) == 0:
+							self.layers.append(Layer(self.preamble.get_final_point(), curr_layer, layernum=layernum))
+						else:
+							self.layers.append(Layer(self.layers[-1].get_final_point(), curr_layer, layernum=layernum))
 						layernum =+ 1
 					curr_layer = [l]
 
@@ -366,7 +403,7 @@ class Gcode(object):
 				else:
 					curr_layer.append(l)
 
-			self.layers.append(Layer(curr_layer))
+			self.layers.append(Layer(self.layers[-1].get_final_point(), curr_layer, layernum=layernum))
 
 
 if __name__ == "__main__":
