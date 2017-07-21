@@ -3,3 +3,6 @@
 
 #ignore matlab autosave files
 *.asv
+
+#ignore gcode files
+*.gcode
