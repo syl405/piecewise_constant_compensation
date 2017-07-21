@@ -220,7 +220,7 @@ class Layer(object):
 		self.final_point = self.lines[-1].get_final_point() #final pt in last line
 
 	def __repr__(self):
-		return '<Layer %s at Z=%s; corners: (%d, %d), (%d, %d); %d lines>' % (
+		return '<Layer %s at Z=%s; corners: (%s, %s), (%d, %d); %d lines>' % (
 				(self.layernum, self.z()) + self.extents() + (len(self.lines),))
 
 	def get_initial_point(self):
@@ -234,6 +234,7 @@ class Layer(object):
 	def extents(self):
 		"""Return the extents of the layer: the min/max in x and y that
 		occur. Note this does not take arcs into account."""
+		#TO-DO: This doesn't work correctly for G28 lines where X and Y are passed but without numerical values
 		min_x = min(self.lines, key=lambda l: l.args.get('X', float('inf'))).args['X']
 		min_y = min(self.lines, key=lambda l: l.args.get('Y', float('inf'))).args['Y']
 		max_x = max(self.lines, key=lambda l: l.args.get('X', float('-inf'))).args['X']
@@ -287,15 +288,15 @@ class Layer(object):
 		compensator(). compensator is a Compensator3D instance representing
 		the error model being used for compensation."""
 		for line in self.lines:
-			if line.code == 'G1': #apply compensation only to G1 lines (Slic3r generated lines)
+			if line.code in {'G1','G0'}: #apply compensation only to G1 lines (Slic3r generated lines)
 				if 'X' in line.args and 'Y' in line.args: #check if it is an XY move line
 					X = line.args['X']
 					Y = line.args['Y']
-					line.args['Z'] = self.z() - compensator.get_predicted_error(X-4.195,Y-28.195,self.z()) #apply z compensation with appropriate xy offset
+					line.args['Z'] = line.args['Z'] - compensator.get_predicted_error(X-4.195,Y-28.195,self.z()) #apply z compensation with appropriate xy offset
 				elif 'X' in line.args or 'Y' in line.args: #uniaxial traverses (theses are non-print moves)
 					line.args['Z'] = self.z() #force to original layer height
-			elif line.code == 'G0': #default G0 lines to original layer height
-				line.args['Z'] = self.z()
+			#elif line.code == 'G0': #default G0 lines to original layer height
+				#line.args['Z'] = self.z()
 
 	def multiply(self, **kwargs):
 		"""Same as shift but with multiplication instead."""
@@ -309,8 +310,6 @@ class Layer(object):
 		"""Construct and return a gcode string."""
 		return '\n'.join(l.construct() for l in self.preamble + self.lines
 				+ self.postamble)
-
-
 
 class Gcode(object):
 	def __init__(self, filename=None, filestring=''):
@@ -368,6 +367,7 @@ class Gcode(object):
 			return
 
 		in_preamble = True
+		in_raft = True
 
 		#Cura nicely adds a "LAYER" comment just before each layer
 		if ';LAYER:' in filestring:
@@ -388,8 +388,12 @@ class Gcode(object):
 				#Looks like a layer change because we have a Z
 				if re.match(r'G[01]\s+Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
 					if in_preamble:
-						self.preamble = Layer(Point(0,0,0), curr_layer, layernum=0)
-						in_preamble = False
+						if not in_raft:
+							self.preamble = Layer(Point(0,0,0), curr_layer, layernum=0)
+							in_preamble = False # preamble only ends at the first layer change after raft finishes
+						else:
+							curr_layer.append(l) #append to preamble if still in raft
+							continue #skip rest of loop
 					else:
 						if len(self.layers) == 0:
 							self.layers.append(Layer(self.preamble.get_final_point(), curr_layer, layernum=layernum))
@@ -401,9 +405,10 @@ class Gcode(object):
 				#Not a layer change so add it to the current layer
 				else:
 					curr_layer.append(l)
+					if l == '; END RAFT':
+						in_raft = False # exit raft once END RAFT flag detected
 
 			self.layers.append(Layer(self.layers[-1].get_final_point(), curr_layer, layernum=layernum))
-
 
 if __name__ == "__main__":
 	if sys.argv[1:]:
