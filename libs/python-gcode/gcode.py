@@ -191,7 +191,6 @@ class Line(object):
 					for k,v in self.args.iteritems()]) +\
 		(' ;%s' % self.comment if self.comment else '')
 
-
 class Layer(object):
 	def __init__(self, prev_layer_final_pt, lines=[], layernum=None):
 		"""Parse a layer of gcode line-by-line, making Line objects."""
