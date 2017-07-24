@@ -5,4 +5,4 @@
 *.asv
 
 #ignore gcode files
-**\*.gcode
+**/*.gcode

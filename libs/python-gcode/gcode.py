@@ -1,4 +1,5 @@
 import re, sys, warnings, copy
+SEG_LENGTH_SPLIT = 1 #segment lengths to split moves into (in mm)
 
 class Point(object):
 	def __init__(self, X, Y, Z):
@@ -192,7 +193,7 @@ class Line(object):
 		(' ;%s' % self.comment if self.comment else '')
 
 class Layer(object):
-	def __init__(self, prev_layer_final_pt, lines=[], layernum=None):
+	def __init__(self, prev_layer_final_pt, lines=[], split=True, layernum=None):
 		"""Parse a layer of gcode line-by-line, making Line objects."""
 		self.layernum  = layernum
 		self.preamble  = []
@@ -200,8 +201,8 @@ class Layer(object):
 		self.lines = []
 
 		first_line_in_layer = Line(lines[0],prev_layer_final_pt) #make Line object from unsplit first line
-		if first_line_in_layer.get_code() in ['G0','G1']: #only split move lines
-			split_first_line_in_layer = first_line_in_layer.split_move(10) #split first line into 1mm-long segments
+		if first_line_in_layer.get_code() in ['G0','G1'] and split: #only split move lines
+			split_first_line_in_layer = first_line_in_layer.split_move(SEG_LENGTH_SPLIT) #split first line into 1mm-long segments
 			self.lines += split_first_line_in_layer # initialize list of lines with split fist line
 		else:
 			self.lines += [first_line_in_layer]
@@ -209,8 +210,8 @@ class Layer(object):
 		for l in lines[1:]:
 			prev_line = self.lines[-1]
 			cur_line = Line(l,prev_line.get_final_point())
-			if cur_line.get_code() in ['G0','G1'] and 'E' in cur_line.get_args(): #do not split non-printing moves
-				split_cur_line = cur_line.split_move(10)
+			if cur_line.get_code() in ['G0','G1'] and 'E' in cur_line.get_args() and split: #do not split non-printing moves
+				split_cur_line = cur_line.split_move(SEG_LENGTH_SPLIT)
 				self.lines += split_cur_line
 			else:
 				self.lines += [cur_line]
@@ -389,7 +390,7 @@ class Gcode(object):
 				if re.match(r'G[01]\s+Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
 					if in_preamble:
 						if not in_raft:
-							self.preamble = Layer(Point(0,0,0), curr_layer, layernum=0)
+							self.preamble = Layer(Point(0,0,0), curr_layer, split=False, layernum=0) #do not split preamble (not compensating anyway)
 							in_preamble = False # preamble only ends at the first layer change after raft finishes
 						else:
 							curr_layer.append(l) #append to preamble if still in raft
