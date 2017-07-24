@@ -16,7 +16,7 @@ class Point(object):
 		return [self.X, self.Y, self.Z]
 
 class Line(object):
-	def __init__(self, line, initial_point, code=None, args={}, comment=None):
+	def __init__(self, line, initial_point, code=None, args={}, comment=None, explicit=False):
 		"""Parse a single line of gcode into its code and named
 		arguments."""
 		self.line    = line
@@ -63,22 +63,22 @@ class Line(object):
 		# determine destination specified by current line
 		[X,Y,Z] = self.initial_point.get_coordinates() #default to no movemente
 		# update with destination specified in current line if applicable
-		if self.code in {'G0','G1'}: #do not force explicit XYZ for 
+		if self.code in {'G0','G1'}:
 			if 'X' not in self.args and 'Y' not in self.args and 'Z' not in self.args and 'E' in self.args:
 				self.args = self.args
 				#do not force explicit XYZ for non-moving filament-only moves (they are sometimes in relative mode)
 			else:
 				if 'X' in self.args:
 					X = self.args['X']
-				else: # do not allow implicit non-moving axis, force explicit spec on XYZ for all move commands
+				elif explicit: # do not allow implicit non-moving axis, force explicit XYZ dest if explicit specified
 					self.args['X'] = X
 				if 'Y' in self.args:
 					Y = self.args['Y']
-				else:
+				elif explicit:
 					self.args['Y'] = Y
 				if 'Z' in self.args:
 					Z = self.args['Z']
-				else:
+				elif explicit:
 					self.args['Z'] = Z
 			self.final_point = Point(X,Y,Z)
 		else:
@@ -200,14 +200,14 @@ class Line(object):
 		(' ;%s' % self.comment if self.comment else '')
 
 class Layer(object):
-	def __init__(self, prev_layer_final_pt, lines=[], split=True, layernum=None):
+	def __init__(self, prev_layer_final_pt, lines=[], split=True, layernum=None, explicit=True):
 		"""Parse a layer of gcode line-by-line, making Line objects."""
 		self.layernum  = layernum
 		self.preamble  = []
 		self.postamble = []
 		self.lines = []
 
-		first_line_in_layer = Line(lines[0],prev_layer_final_pt) #make Line object from unsplit first line
+		first_line_in_layer = Line(lines[0],prev_layer_final_pt,explicit=explicit) #make Line object from unsplit first line
 		if first_line_in_layer.get_code() in ['G0','G1'] and split: #only split move lines
 			split_first_line_in_layer = first_line_in_layer.split_move(SEG_LENGTH_SPLIT) #split first line into 1mm-long segments
 			self.lines += split_first_line_in_layer # initialize list of lines with split fist line
@@ -216,7 +216,7 @@ class Layer(object):
 
 		for l in lines[1:]:
 			prev_line = self.lines[-1]
-			cur_line = Line(l,prev_line.get_final_point())
+			cur_line = Line(l,prev_line.get_final_point(),explicit=explicit)
 			if cur_line.get_code() in ['G0','G1'] and 'E' in cur_line.get_args() and split: #do not split non-printing moves
 				split_cur_line = cur_line.split_move(SEG_LENGTH_SPLIT)
 				self.lines += split_cur_line
@@ -397,7 +397,7 @@ class Gcode(object):
 				if re.match(r'G[01]\s+Z-?\.?\d+', l): #this may pose problems when we try to do non-planar layers (e.g. volumeteric error compensation)
 					if in_preamble:
 						if not in_raft:
-							self.preamble = Layer(Point(0,0,0), curr_layer, split=False, layernum=0) #do not split preamble (not compensating anyway)
+							self.preamble = Layer(Point(0,0,0), curr_layer, split=False, layernum=0, explicit=False) #do not split preamble (not compensating anyway)
 							in_preamble = False # preamble only ends at the first layer change after raft finishes
 						else:
 							curr_layer.append(l) #append to preamble if still in raft
