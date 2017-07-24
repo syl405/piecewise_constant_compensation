@@ -63,19 +63,23 @@ class Line(object):
 		# determine destination specified by current line
 		[X,Y,Z] = self.initial_point.get_coordinates() #default to no movemente
 		# update with destination specified in current line if applicable
-		if self.code in {'G0','G1'}:
-			if 'X' in self.args:
-				X = self.args['X']
-			else: # do not allow implicit non-moving axis, force explicit spec on XYZ for all move commands
-				self.args['X'] = X
-			if 'Y' in self.args:
-				Y = self.args['Y']
+		if self.code in {'G0','G1'}: #do not force explicit XYZ for 
+			if 'X' not in self.args and 'Y' not in self.args and 'Z' not in self.args and 'E' in self.args:
+				self.args = self.args
+				#do not force explicit XYZ for non-moving filament-only moves (they are sometimes in relative mode)
 			else:
-				self.args['Y'] = Y
-			if 'Z' in self.args:
-				Z = self.args['Z']
-			else:
-				self.args['Z'] = Z
+				if 'X' in self.args:
+					X = self.args['X']
+				else: # do not allow implicit non-moving axis, force explicit spec on XYZ for all move commands
+					self.args['X'] = X
+				if 'Y' in self.args:
+					Y = self.args['Y']
+				else:
+					self.args['Y'] = Y
+				if 'Z' in self.args:
+					Z = self.args['Z']
+				else:
+					self.args['Z'] = Z
 			self.final_point = Point(X,Y,Z)
 		else:
 			self.final_point = self.initial_point
@@ -145,6 +149,9 @@ class Line(object):
 
 			#instantiate first line (this is redundant move with zero length; just stays at initial position of original unsplit line)
 			first_line_args = copy.deepcopy(self.args)
+			first_line_args['X'] = self.get_initial_point().get_coordinates()[0]
+			first_line_args['Y'] = self.get_initial_point().get_coordinates()[1]
+			first_line_args['Z'] = self.get_initial_point().get_coordinates()[2]
 			first_line_args['E'] = 0
 			list_of_constituent_lines = [Line('',\
 										 self.get_initial_point(),\
