@@ -183,6 +183,9 @@ class Line(object):
 			last_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, last_line_args, ';last move in split move')
 			list_of_constituent_lines.append(last_line)
 
+			#remove redundant first line (a redundant line going nowhere causes printer to hesitate)
+			del list_of_constituent_lines[0]
+
 			#sanity check
 			if list_of_constituent_lines[-1].get_final_point().get_coordinates() != self.final_point.get_coordinates():
 				raise ValueError('Split line not coming back to original destination.')
