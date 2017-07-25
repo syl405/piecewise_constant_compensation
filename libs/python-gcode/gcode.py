@@ -171,6 +171,8 @@ class Line(object):
 				cur_args['Y'] = cur_Y
 				cur_args['Z'] = cur_Z
 				cur_args['E'] = E_full_length_segments
+				if i > 1 and 'F' in cur_args: #explicitly specify feedrate only for first line in sequence of split moves
+					del cur_args['F']
 				incremental_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, cur_args, 'splt')
 
 
@@ -180,6 +182,8 @@ class Line(object):
 			#instantiate last time (this segment may be shorter than the specified segment length and is required to bring machine to destination specced in unsplit move)
 			last_line_args = copy.deepcopy(self.args)
 			last_line_args['E'] = E_last_segment
+			if 'F' in last_line_args: #do not explicitly specify feedrate for last line
+				del last_line_args['F']
 			last_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, last_line_args, 'end splt')
 			list_of_constituent_lines.append(last_line)
 
