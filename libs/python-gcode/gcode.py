@@ -1,5 +1,5 @@
 import re, sys, warnings, copy
-SEG_LENGTH_SPLIT = 1 #segment lengths to split moves into (in mm)
+SEG_LENGTH_SPLIT = 3 #segment lengths to split moves into (in mm)
 
 class Point(object):
 	def __init__(self, X, Y, Z):
