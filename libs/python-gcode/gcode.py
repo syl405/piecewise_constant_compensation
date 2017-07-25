@@ -144,8 +144,8 @@ class Line(object):
 				print 'final: (%f,%f,%f)' % (self.final_point.get_coordinates()[0],self.final_point.get_coordinates()[1],self.final_point.get_coordinates()[2])
 
 			#calculate extrusion length for each segment
-			E_full_length_segments = self.args['E'] * (float(segment_length)/self.length) #distribute extruded filament length by print length
-			E_last_segment = self.args['E'] * ((self.length - (float(segment_length)*n_segments))/self.length)
+			E_full_length_segments = round(self.args['E'] * (float(segment_length)/self.length),3) #distribute extruded filament length by print length
+			E_last_segment = round(self.args['E'] * ((self.length - (float(segment_length)*n_segments))/self.length),3)
 
 			#instantiate first line (this is redundant move with zero length; just stays at initial position of original unsplit line)
 			first_line_args = copy.deepcopy(self.args)
@@ -157,12 +157,12 @@ class Line(object):
 										 self.get_initial_point(),\
 										 self.code,\
 										 first_line_args,\
-										 ';first move in split move')]
+										 'begin splt')]
 
 			for i in range(1,n_segments+1): #start at i=1 to avoid redundant line instructing machine to stay at initial point
-				cur_X = self.initial_point.get_coordinates()[0] + i*segment_length*X_hat
-				cur_Y = self.initial_point.get_coordinates()[1] + i*segment_length*Y_hat
-				cur_Z = self.initial_point.get_coordinates()[2] + i*segment_length*Z_hat
+				cur_X = round(self.initial_point.get_coordinates()[0] + i*segment_length*X_hat,3)
+				cur_Y = round(self.initial_point.get_coordinates()[1] + i*segment_length*Y_hat,3)
+				cur_Z = round(self.initial_point.get_coordinates()[2] + i*segment_length*Z_hat,3)
 
 				#make next segment
 				cur_args = copy.deepcopy(self.args) #copy over arguments from unsplit line to preserve feedrate, extrusion etc.
@@ -171,7 +171,7 @@ class Line(object):
 				cur_args['Y'] = cur_Y
 				cur_args['Z'] = cur_Z
 				cur_args['E'] = E_full_length_segments
-				incremental_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, cur_args, ';split segment')
+				incremental_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, cur_args, 'splt')
 
 
 				#append next segment to list of split moves
@@ -180,7 +180,7 @@ class Line(object):
 			#instantiate last time (this segment may be shorter than the specified segment length and is required to bring machine to destination specced in unsplit move)
 			last_line_args = copy.deepcopy(self.args)
 			last_line_args['E'] = E_last_segment
-			last_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, last_line_args, ';last move in split move')
+			last_line = Line('', list_of_constituent_lines[-1].get_final_point(), self.code, last_line_args, 'end splt')
 			list_of_constituent_lines.append(last_line)
 
 			#remove redundant first line (a redundant line going nowhere causes printer to hesitate)
@@ -363,7 +363,7 @@ class Gcode(object):
 	def z_compensate(self, compensator):
 		"""Apply 3D z compensation to all layers in this gcode object,
 		according to amount specified by compensator.get_predicted_error()."""
-		for layer in self.layers:
+		for layer in self.layers[1:]:
 			layer.z_compensate(compensator)
 
 	def multiply(self, layernum=0, **kwargs):

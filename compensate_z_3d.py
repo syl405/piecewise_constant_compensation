@@ -108,7 +108,7 @@ class Compensator3D:
 		if z < 0:
 			return 0
 		else:
-			return self.coeffs[0] +\
+			return round(self.coeffs[0] +\
 				   self.coeffs[1]*x +\
 				   self.coeffs[2]*y +\
 				   self.coeffs[3]*z +\
@@ -127,6 +127,6 @@ class Compensator3D:
 				   self.coeffs[16]*(y**2)*z +\
 				   self.coeffs[17]*x*(z**2) +\
 				   self.coeffs[18]*y*(z**2) +\
-				   self.coeffs[19]*z**3
+				   self.coeffs[19]*z**3,3)
 
 
