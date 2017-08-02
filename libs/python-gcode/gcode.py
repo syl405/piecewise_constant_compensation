@@ -1,3 +1,8 @@
+"""
+Based on python_gcode (https://github.com/fetlab/python_gcode) by (https://github.com/anjiro).
+Licensed and modified under the MIT License by Shien Yang Lee (https://github.com/syl405).
+"""
+
 import re, sys, warnings, copy
 SEG_LENGTH_SPLIT = 3 #segment lengths to split moves into (in mm)
 
